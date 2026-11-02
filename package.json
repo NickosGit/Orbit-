@@ -1,28 +1,31 @@
 {
   "name": "orbit-launcher",
   "productName": "Orbit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Launcher alternativo para Roblox con interfaz propia, usa Bloxstrap por debajo",
   "main": "main.js",
   "author": "Nicolas Martinez",
   "license": "MIT",
+  "repository": "https://github.com/NickosGit/Orbit-",
   "scripts": {
     "start": "electron .",
-    "build": "npx electron-builder --win portable"
+    "build": "electron-builder --win",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "electron": "^38.0.0"
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
   },
   "build": {
-    "appId": "com.nico.orbit",
+    "appId": "com.nickos.orbit",
     "productName": "Orbit",
-    "files": [
-      "main.js",
-      "preload.js",
-      "src/**/*"
-    ],
-    "win": {
-      "target": "portable"
-    }
+    "files": ["main.js", "preload.js", "src/**/*"],
+    "directories": { "buildResources": "build", "output": "dist" },
+    "win": { "target": "nsis", "icon": "build/icon.png", "artifactName": "Orbit-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "shortcutName": "Orbit" },
+    "publish": [{ "provider": "github", "owner": "NickosGit", "repo": "Orbit-", "releaseType": "release" }]
   }
 }

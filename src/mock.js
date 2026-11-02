@@ -18,6 +18,28 @@ if (!window.orbit) {
     playing: [184233, 52310, 9120, 33401, 251002, 12044, 7710, 98012, 4410, 61203, 2210, 18880][i], visits: 1.2e9 / (i + 1), maxPlayers: 24, genre: ['Aventura', 'Carreras', 'Simulador', 'Terror'][i % 4],
     rating: 78 + (i * 3) % 20, icon: art(i, 512, 512, n.split(' ')[0].toUpperCase()), banner: art(i, 768, 432, n.toUpperCase()),
   }));
+  const avatarSvg = (() => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="720" viewBox="0 0 720 720">
+      <g stroke="rgba(0,0,0,.25)" stroke-width="3">
+      <rect x="318" y="120" width="84" height="20" rx="6" fill="#2b2d3a"/>
+      <rect x="290" y="135" width="140" height="130" rx="22" fill="#f2c9a0"/>
+      <rect x="282" y="122" width="156" height="40" rx="14" fill="#2b2d3a"/>
+      <rect x="250" y="270" width="220" height="200" rx="14" fill="#7c5cff"/>
+      <rect x="250" y="400" width="220" height="16" fill="#5b3fd6"/>
+      <rect x="185" y="275" width="62" height="190" rx="16" fill="#7c5cff"/>
+      <rect x="473" y="275" width="62" height="190" rx="16" fill="#7c5cff"/>
+      <rect x="185" y="430" width="62" height="40" rx="14" fill="#f2c9a0"/>
+      <rect x="473" y="430" width="62" height="40" rx="14" fill="#f2c9a0"/>
+      <rect x="255" y="472" width="102" height="190" rx="12" fill="#1f2433"/>
+      <rect x="363" y="472" width="102" height="190" rx="12" fill="#1f2433"/>
+      <rect x="250" y="640" width="110" height="30" rx="10" fill="#fff"/>
+      <rect x="360" y="640" width="110" height="30" rx="10" fill="#fff"/>
+      </g>
+      <circle cx="335" cy="200" r="9" fill="#222"/><circle cx="385" cy="200" r="9" fill="#222"/>
+      <path d="M335 232 q25 18 50 0" stroke="#222" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <path d="M318 320 l42 40 l42 -40" stroke="#fff" stroke-width="12" fill="none" opacity=".85"/></svg>`;
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  })();
   const byPlace = Object.fromEntries(games.map((g) => [g.placeId, g]));
   const now = Date.now();
   const sessions = [
@@ -38,11 +60,26 @@ if (!window.orbit) {
     discover: () => wait([{ title: 'Tendencias', games: games.slice(4).concat(games.slice(0, 4)) }, { title: 'Más jugados', games: [...games].sort((a, b) => b.playing - a.playing) }, { title: 'Recomendados para ti', games: games.slice(2, 10) }]),
     search: (q) => wait(games.filter((g) => g.name.toLowerCase().includes(q.toLowerCase()))),
     sessions: () => wait(sessions, 0),
-    me: () => wait(location.hash === '#out' ? null : { id: 1, name: 'nico_mtz', displayName: 'Nico', robux: 1250, friends: 84, followers: 213, avatar: art(1, 420, 420, 'N'), headshot: art(1, 150, 150, 'N') }),
+    me: () => wait(location.hash === '#out' ? null : { id: 1, name: 'nico_mtz', displayName: 'Nico', robux: 1250, friends: 84, followers: 213, avatar: avatarSvg, headshot: art(1, 150, 150, 'N') }),
     accountFavorites: () => wait(games.slice(5, 11)),
     friends: () => wait(friends),
     login: () => wait(true), logout: () => wait(true),
     blox: { get: () => wait({ installed: true, settings: blox }), set: (k, v) => wait((blox[k] = v)), menu: () => wait(true) },
+    servers: () => wait({ next: 'p2', servers: Array.from({ length: 14 }, (_, i) => ({ id: 'job-' + i + '-' + Math.random().toString(36).slice(2, 6), playing: [24, 22, 18, 9, 30, 4, 15, 27, 12, 6, 20, 2, 11, 25][i], max: 30, ping: [62, 48, 140, 95, 210, 55, 71, 180, 39, 120, 88, 260, 66, 101][i], fps: 60 })) }, 300),
+    serverRegion: (pid, id) => { const opts = [{ city: 'Dallas', region: 'Texas', country: 'US' }, { city: 'Miami', region: 'Florida', country: 'US' }, { city: 'Los Angeles', region: 'California', country: 'US' }, { city: 'Ciudad de México', region: 'CDMX', country: 'MX' }, { city: 'São Paulo', region: 'São Paulo', country: 'BR' }, { city: 'Frankfurt', region: 'Hesse', country: 'DE' }]; return wait(opts[(id.charCodeAt(4) + id.length) % opts.length], 200 + Math.random() * 500); },
+    badges: {
+      recent: () => wait(['Primer paso', 'Explorador', 'Sobreviviente', 'Coleccionista', 'Leyenda', 'Velocista'].map((n, i) => ({ id: i, name: n, description: 'Insignia de prueba', icon: art(i + 2, 150, 150, '★'), awarded: new Date(Date.now() - (i + 1) * 9e6).toISOString(), game: { name: names[i * 2 % 12], placeId: 5000 + (i * 2 % 12) } }))),
+      game: () => wait(Array.from({ length: 24 }, (_, i) => ({ id: i, name: 'Insignia ' + (i + 1), icon: art(i, 150, 150, '★'), owned: i % 3 !== 2 && i < 16, rarity: 40 - i * 1.5, awarded: null })), 300),
+    },
+    mods: (() => {
+      const cats = { sound: { active: 'bonk', items: [['bonk', 'Bonk 8-bit'], ['pop', 'Pop'], ['glitch', 'Glitch'], ['campana', 'Campana'], ['laser', 'Láser'], ['boing', 'Boing']].map(([id, name]) => ({ id, name, file: `mods/sounds/${id}.ogg` })) },
+        cursor: { active: null, items: [['punto', 'Punto'], ['punto-neon', 'Punto neón'], ['anillo', 'Anillo'], ['mira', 'Mira'], ['cruz-cian', 'Cruz cian'], ['flecha', 'Flecha']].map(([id, name]) => ({ id, name, file: `mods/cursors/${id}.png` })) },
+        shiftlock: { active: 'mira-neon', items: [['punto', 'Punto'], ['cruz', 'Cruz'], ['mira-neon', 'Mira neón'], ['anillo-cian', 'Anillo cian']].map(([id, name]) => ({ id, name, file: `mods/shiftlock/${id}.png` })) } };
+      const l = () => wait({ installed: true, cats });
+      return { list: l, apply: (c, id) => { cats[c].active = id; return l(); }, reset: (c) => { cats[c].active = null; return l(); }, import: l };
+    })(),
+    version: () => wait('0.2.0', 0),
+    update: { get: () => wait({ state: 'latest' }, 0), check: () => wait({ state: 'latest' }), install: () => wait(true), on: () => {} },
     launch: () => wait(true), open: () => wait(true), win: () => wait(true),
   };
 }

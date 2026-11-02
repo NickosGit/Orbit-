@@ -1,5 +1,5 @@
 // Orbit — launcher alternativo para Roblox (usa Bloxstrap por debajo)
-const { app, BrowserWindow, ipcMain, shell, session, net } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, net, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -12,6 +12,7 @@ const BLOX_SETTINGS = path.join(BLOX_DIR, 'Settings.json');
 const BLOX_LOGS = path.join(BLOX_DIR, 'Logs');
 const ROBLOX_LOGS = path.join(LOCAL, 'Roblox', 'logs');
 const PARTITION = 'persist:roblox';
+const BLOX_MODS = path.join(BLOX_DIR, 'Modifications');
 const BLOX_KEYS = ['ShowServerDetails', 'UseDiscordRichPresence', 'ConfirmLaunches', 'EnableActivityTracking'];
 
 let win;
@@ -31,12 +32,13 @@ function saveData() {
 const rbxSession = () => session.fromPartition(PARTITION);
 let csrf = '';
 
-function request(url, { method = 'GET', body } = {}, retried = false) {
+function request(url, { method = 'GET', body, headers = {} } = {}, retried = false) {
   return new Promise((resolve, reject) => {
     const req = net.request({ url, method, session: rbxSession(), useSessionCookies: true });
     req.setHeader('Accept', 'application/json');
     if (body) req.setHeader('Content-Type', 'application/json');
     if (csrf && method !== 'GET') req.setHeader('x-csrf-token', csrf);
+    for (const [k, v] of Object.entries(headers)) req.setHeader(k, v);
     req.on('response', (res) => {
       let chunks = [];
       res.on('data', (c) => chunks.push(c));
@@ -45,7 +47,7 @@ function request(url, { method = 'GET', body } = {}, retried = false) {
         const token = res.headers['x-csrf-token'];
         if (res.statusCode === 403 && token && !retried) {
           csrf = Array.isArray(token) ? token[0] : token;
-          return request(url, { method, body }, true).then(resolve, reject);
+          return request(url, { method, body, headers }, true).then(resolve, reject);
         }
         if (res.statusCode >= 400) return reject(new Error(`${res.statusCode} ${url}`));
         try { resolve(JSON.parse(text)); } catch { resolve(text); }
@@ -171,7 +173,7 @@ async function me() {
       get(`https://economy.roblox.com/v1/users/${u.id}/currency`).catch(() => ({})),
       get(`https://friends.roblox.com/v1/users/${u.id}/friends/count`).catch(() => ({})),
       get(`https://friends.roblox.com/v1/users/${u.id}/followers/count`).catch(() => ({})),
-      get(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${u.id}&size=420x420&format=Png&isCircular=false`).catch(() => ({ data: [] })),
+      get(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${u.id}&size=720x720&format=Png&isCircular=false`).catch(() => ({ data: [] })),
       get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${u.id}&size=150x150&format=Png&isCircular=false`).catch(() => ({ data: [] })),
     ]);
     return {
@@ -252,6 +254,176 @@ async function logout() {
   csrf = '';
   await rbxSession().clearStorageData();
   return true;
+}
+
+
+// ---------- servidores y región ----------
+const regionCache = {};
+async function servers(placeId, cursor) {
+  const r = await get(`https://games.roblox.com/v1/games/${Number(placeId)}/servers/Public?sortOrder=Desc&excludeFullGames=false&limit=100${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`);
+  return {
+    next: r.nextPageCursor || null,
+    servers: (r.data || []).map((s) => ({ id: s.id, playing: s.playing || 0, max: s.maxPlayers || 0, ping: s.ping ?? null, fps: s.fps ?? null })),
+  };
+}
+
+async function geo(ip) {
+  const key = ip.split('.').slice(0, 3).join('.'); // mismo bloque = mismo centro de datos
+  if (data.cache['ip:' + key]) return data.cache['ip:' + key];
+  const r = await net.fetch(`https://ipinfo.io/${ip}/json`).then((x) => x.json());
+  const g = { city: r.city || '', region: r.region || '', country: r.country || '' };
+  data.cache['ip:' + key] = g; saveData();
+  return g;
+}
+
+// Pide a Roblox los datos de conexión del servidor (sin entrar) para saber su IP y ubicarla
+async function serverRegion(placeId, jobId) {
+  if (regionCache[jobId]) return regionCache[jobId];
+  const r = await request('https://gamejoin.roblox.com/v1/join-game-instance', {
+    method: 'POST',
+    headers: { 'User-Agent': 'Roblox/WinInet' },
+    body: { placeId: Number(placeId), gameId: jobId, gameJoinAttemptId: crypto.randomUUID(), isTeleport: false },
+  });
+  const js = r && r.joinScript;
+  const ip = js && ((js.UdmuxEndpoints && js.UdmuxEndpoints[0] && js.UdmuxEndpoints[0].Address) || js.MachineAddress);
+  if (!ip || /^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(ip)) return null;
+  const g = await geo(ip);
+  regionCache[jobId] = g;
+  return g;
+}
+
+// ---------- insignias ----------
+async function badgeIcons(ids) {
+  const out = {};
+  for (const part of chunk(ids, 100)) {
+    const r = await get(`https://thumbnails.roblox.com/v1/badges/icons?badgeIds=${part.join(',')}&size=150x150&format=Png&isCircular=false`).catch(() => ({ data: [] }));
+    (r.data || []).forEach((x) => (out[x.targetId] = x.imageUrl));
+  }
+  return out;
+}
+async function awardedDates(userId, ids) {
+  const out = {};
+  for (const part of chunk(ids, 100)) {
+    const r = await get(`https://badges.roblox.com/v1/users/${userId}/badges/awarded-dates?badgeIds=${part.join(',')}`).catch(() => ({ data: [] }));
+    (r.data || []).forEach((x) => (out[x.badgeId] = x.awardedDate));
+  }
+  return out;
+}
+
+async function recentBadges(userId) {
+  const r = await get(`https://badges.roblox.com/v1/users/${userId}/badges?limit=25&sortOrder=Desc`);
+  const list = r.data || [];
+  const ids = list.map((b) => b.id);
+  const [icons, dates] = await Promise.all([badgeIcons(ids), awardedDates(userId, ids)]);
+  const places = [...new Set(list.map((b) => b.awarder && b.awarder.id).filter(Boolean))];
+  const games = {};
+  (await gamesByPlace(places).catch(() => [])).forEach((g) => (games[g.placeId] = g));
+  return list.map((b) => {
+    const g = b.awarder ? games[b.awarder.id] : null;
+    return { id: b.id, name: b.name, description: b.description || '', icon: icons[b.id] || '', awarded: dates[b.id] || null, game: g ? { name: g.name, placeId: g.placeId } : null };
+  });
+}
+
+async function gameBadges(universeId, userId) {
+  let list = [], cursor = '';
+  for (let i = 0; i < 3; i++) { // hasta 300 insignias
+    const r = await get(`https://badges.roblox.com/v1/universes/${universeId}/badges?limit=100&sortOrder=Asc${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`);
+    list = list.concat(r.data || []);
+    if (!r.nextPageCursor) break;
+    cursor = r.nextPageCursor;
+  }
+  list = list.filter((b) => b.enabled !== false);
+  const ids = list.map((b) => b.id);
+  const [icons, dates] = await Promise.all([badgeIcons(ids), userId ? awardedDates(userId, ids) : {}]);
+  return list.map((b) => ({
+    id: b.id, name: b.name, description: b.description || '', icon: icons[b.id] || '',
+    owned: !!dates[b.id], awarded: dates[b.id] || null,
+    rarity: b.statistics ? b.statistics.winRatePercentage : null,
+  }));
+}
+
+// ---------- galería de mods (se guardan en la carpeta de mods de Bloxstrap) ----------
+const MODS_DIR = path.join(__dirname, 'src', 'mods');
+const MOD_CATS = {
+  sound: {
+    folder: 'sounds', ext: 'ogg', importExt: ['ogg', 'mp3', 'wav'],
+    targets: ['content/sounds/ouch.ogg'],
+    items: [['bonk', 'Bonk 8-bit'], ['pop', 'Pop'], ['glitch', 'Glitch'], ['campana', 'Campana'], ['laser', 'Láser'], ['boing', 'Boing']],
+  },
+  cursor: {
+    folder: 'cursors', ext: 'png', importExt: ['png'],
+    targets: ['content/textures/Cursors/KeyboardMouse/ArrowCursor.png', 'content/textures/Cursors/KeyboardMouse/ArrowFarCursor.png'],
+    items: [['punto', 'Punto'], ['punto-neon', 'Punto neón'], ['anillo', 'Anillo'], ['mira', 'Mira'], ['cruz-cian', 'Cruz cian'], ['flecha', 'Flecha']],
+  },
+  shiftlock: {
+    folder: 'shiftlock', ext: 'png', importExt: ['png'],
+    targets: ['content/textures/MouseLockedCursor.png'],
+    items: [['punto', 'Punto'], ['cruz', 'Cruz'], ['mira-neon', 'Mira neón'], ['anillo-cian', 'Anillo cian']],
+  },
+};
+const md5 = (buf) => crypto.createHash('md5').update(buf).digest('hex');
+const modAsset = (cat, id) => path.join(MODS_DIR, MOD_CATS[cat].folder, `${id}.${MOD_CATS[cat].ext}`);
+
+function modsList() {
+  const out = {};
+  for (const [cat, c] of Object.entries(MOD_CATS)) {
+    let active = null;
+    const target = path.join(BLOX_MODS, c.targets[0]);
+    if (fs.existsSync(target)) {
+      const h = md5(fs.readFileSync(target));
+      const hit = c.items.find(([id]) => { try { return md5(fs.readFileSync(modAsset(cat, id))) === h; } catch { return false; } });
+      active = hit ? hit[0] : 'custom';
+    }
+    out[cat] = { active, items: c.items.map(([id, name]) => ({ id, name, file: `mods/${c.folder}/${id}.${c.ext}` })) };
+  }
+  return { installed: fs.existsSync(BLOX_DIR), cats: out };
+}
+function writeMod(cat, buf) {
+  for (const t of MOD_CATS[cat].targets) {
+    const dest = path.join(BLOX_MODS, t);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, buf);
+  }
+}
+function modApply(cat, id) {
+  if (!MOD_CATS[cat] || !MOD_CATS[cat].items.some(([x]) => x === id)) return modsList();
+  writeMod(cat, fs.readFileSync(modAsset(cat, id)));
+  return modsList();
+}
+async function modImport(cat) {
+  const c = MOD_CATS[cat];
+  if (!c) return modsList();
+  const r = await dialog.showOpenDialog(win, { title: 'Elige un archivo', properties: ['openFile'], filters: [{ name: 'Archivo', extensions: c.importExt }] });
+  if (!r.canceled && r.filePaths[0]) writeMod(cat, fs.readFileSync(r.filePaths[0]));
+  return modsList();
+}
+function modReset(cat) {
+  if (!MOD_CATS[cat]) return modsList();
+  for (const t of MOD_CATS[cat].targets) { try { fs.unlinkSync(path.join(BLOX_MODS, t)); } catch {} }
+  return modsList();
+}
+
+// ---------- actualizaciones (GitHub Releases) ----------
+let updater = null;
+let updateState = { state: 'idle' };
+function sendUpdate(patch) {
+  updateState = { ...updateState, ...patch };
+  if (win && !win.isDestroyed()) win.webContents.send('update', updateState);
+}
+function initUpdater() {
+  if (!app.isPackaged) { updateState = { state: 'dev' }; return; }
+  try { updater = require('electron-updater').autoUpdater; } catch { updateState = { state: 'error', message: 'Falta electron-updater' }; return; }
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  updater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
+  updater.on('update-available', (i) => sendUpdate({ state: 'downloading', version: i.version, percent: 0 }));
+  updater.on('update-not-available', () => sendUpdate({ state: 'latest' }));
+  updater.on('download-progress', (p) => sendUpdate({ state: 'downloading', percent: Math.round(p.percent) }));
+  updater.on('update-downloaded', (i) => sendUpdate({ state: 'ready', version: i.version }));
+  updater.on('error', (e) => sendUpdate({ state: 'error', message: String(e && e.message || e).slice(0, 160) }));
+  const check = () => updater.checkForUpdates().catch(() => {});
+  setTimeout(check, 4000);
+  setInterval(check, 2 * 3600 * 1000);
 }
 
 // ---------- historial (logs de Bloxstrap y Roblox) ----------
@@ -341,6 +513,7 @@ function createWindow() {
     width: 1280, height: 780, minWidth: 1040, minHeight: 640,
     frame: false, backgroundColor: '#07080c', show: false,
     title: 'Orbit',
+    icon: path.join(__dirname, 'src', 'icon.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true },
   });
   win.loadFile(path.join(__dirname, 'src', 'index.html'));
@@ -365,10 +538,22 @@ handle('blox:get', () => bloxGet());
 handle('blox:set', (k, v) => bloxSet(k, v));
 handle('blox:menu', () => { if (fs.existsSync(BLOX_EXE)) spawn(BLOX_EXE, ['-menu'], { detached: true, stdio: 'ignore' }).unref(); return true; });
 handle('launch', (opts) => launch(opts));
+handle('servers', (placeId, cursor) => servers(placeId, cursor));
+handle('servers:region', (placeId, jobId) => serverRegion(placeId, jobId).catch(() => null));
+handle('badges:recent', (userId) => recentBadges(userId).catch(() => []));
+handle('badges:game', (universeId, userId) => gameBadges(universeId, userId).catch(() => null));
+handle('mods:list', () => modsList());
+handle('mods:apply', (cat, id) => modApply(cat, id));
+handle('mods:import', (cat) => modImport(cat));
+handle('mods:reset', (cat) => modReset(cat));
+handle('app:version', () => app.getVersion());
+handle('update:get', () => updateState);
+handle('update:check', () => { if (updater) updater.checkForUpdates().catch(() => {}); return updateState; });
+handle('update:install', () => { if (updater && updateState.state === 'ready') updater.quitAndInstall(); return true; });
 handle('open', (url) => { if (/^https:\/\/(www\.)?roblox\.com\//.test(url)) shell.openExternal(url); return true; });
 handle('win', (a) => { if (!win) return; if (a === 'min') win.minimize(); else if (a === 'max') win.isMaximized() ? win.unmaximize() : win.maximize(); else if (a === 'close') win.close(); });
 
-app.whenReady().then(() => { loadData(); createWindow(); });
+app.whenReady().then(() => { loadData(); createWindow(); initUpdater(); });
 app.on('window-all-closed', () => app.quit());
 
 module.exports = { parseBloxLog, parseRobloxLog };
