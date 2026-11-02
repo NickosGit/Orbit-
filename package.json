@@ -1,0 +1,28 @@
+{
+  "name": "orbit-launcher",
+  "productName": "Orbit",
+  "version": "0.1.0",
+  "description": "Launcher alternativo para Roblox con interfaz propia, usa Bloxstrap por debajo",
+  "main": "main.js",
+  "author": "Nicolas Martinez",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "npx electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0"
+  },
+  "build": {
+    "appId": "com.nico.orbit",
+    "productName": "Orbit",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    }
+  }
+}
