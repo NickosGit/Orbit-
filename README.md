@@ -21,12 +21,9 @@ Para correrlo desde el código: instala Node.js (https://nodejs.org) y da doble 
 
 ## Publicar una versión nueva
 1. Cambia `"version"` en `package.json` (por ejemplo a `0.3.0`).
-2. Haz commit y sube un tag con esa versión:
-   ```
-   git tag v0.3.0
-   git push origin main --tags
-   ```
-3. GitHub Actions compila el instalador y lo publica en Releases (tarda unos 5 minutos). Todas las copias instaladas de Orbit se actualizan solas.
+2. Haz commit de ese cambio.
+3. En GitHub ve a **Actions → Publicar versión → Run workflow**.
+4. GitHub compila el instalador y lo publica en Releases (tarda unos 5 minutos). Todas las copias instaladas de Orbit se actualizan solas.
 
 ## Archivos
 - `main.js`: la parte de "backend" (APIs de Roblox, login, servidores, mods, actualizaciones).

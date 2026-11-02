@@ -1,7 +1,9 @@
 name: Publicar versión
 
-# Se ejecuta cuando subes un tag tipo v0.2.0
+# Se ejecuta con el botón "Run workflow" en la pestaña Actions,
+# o cuando subes un tag tipo v0.2.0. Publica la versión que diga package.json.
 on:
+  workflow_dispatch:
   push:
     tags: ['v*']
 
